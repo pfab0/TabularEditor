@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -6,13 +6,14 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using TabularEditor.UI;
+using Newtonsoft.Json.Linq;
 
 namespace TabularEditor.UIServices
 {
     public static class UpdateService
     {
-        public const string VERSION_MANIFEST_URL = "https://raw.githubusercontent.com/TabularEditor/TabularEditor/master/TabularEditor/version.txt";
         public const string DOWNLOAD_UPDATE_URL = "https://github.com/TabularEditor/TabularEditor/releases/latest";
+        public const string GITHUB_RELEASES_LATEST_API = "https://api.github.com/repos/TabularEditor/TabularEditor/releases/latest";
 
         public static Version CurrentBuild { get; } = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         public static Version AvailableBuild { get; private set; } = null;
@@ -36,26 +37,52 @@ namespace TabularEditor.UIServices
         {
             try
             {
-                var url = VERSION_MANIFEST_URL + "?q=" + Guid.NewGuid().ToString();
-                var wr = WebRequest.CreateHttp(url);
-                wr.Proxy = ProxyCache.GetProxy(url);
-                wr.Timeout = 5000;
-
-                using (var response = wr.GetResponse())
-                {
-                    using (var reader = new System.IO.StreamReader(response.GetResponseStream(), Encoding.UTF8))
-                    {
-                        var availableBuildString = reader.ReadToEnd();
-                        AvailableBuild = Version.Parse(availableBuildString);
-
-                        return CurrentBuild.DetermineUpdate(AvailableBuild);
-                    }
-                }
+                AvailableBuild = GetLatestVersionFromGitHub();
+                return CurrentBuild.DetermineUpdate(AvailableBuild);
             }
             catch (Exception ex)
             {
-                if(displayErrors) MessageBox.Show(ex.Message, "Unable to check for updated versions", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (displayErrors) MessageBox.Show(ex.Message, "Unable to check for updated versions", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return VersionCheckResult.Unknown;
+            }
+        }
+
+        /// <summary>
+        /// Query the GitHub Releases API for the latest release and return a parsed Version.
+        /// Uses WebRequest and Newtonsoft.Json for robust parsing.
+        /// </summary>
+        private static Version GetLatestVersionFromGitHub()
+        {
+            var url = GITHUB_RELEASES_LATEST_API + "?q=" + Guid.NewGuid().ToString();
+            var wr = WebRequest.CreateHttp(url);
+            wr.Proxy = ProxyCache.GetProxy(url);
+            wr.Timeout = 5000;
+            // GitHub API requires a user-agent header
+            wr.Headers["User-Agent"] = "TabularEditorUpdateChecker";
+            wr.Headers["Accept"] = "application/vnd.github.v3+json";
+
+            using (var response = wr.GetResponse())
+            using (var reader = new System.IO.StreamReader(response.GetResponseStream(), Encoding.UTF8))
+            {
+                var json = reader.ReadToEnd();
+                var obj = JObject.Parse(json);
+                var tag = (string)obj["tag_name"];
+                if (string.IsNullOrWhiteSpace(tag))
+                {
+                    return null;
+                }
+
+                tag = tag.Trim();
+
+                if (tag.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                {
+                    tag = tag.Substring(1);
+                }
+                //// Extract the first contiguous sequence of digits and dots (e.g. 2.27.0 or 2.27.8878.22493)
+                //var verMatch = System.Text.RegularExpressions.Regex.Match(tag, "\\d+(?:\\.\\d+){0,3}");
+                //if (!verMatch.Success) return null;
+                //return Version.Parse(verMatch.Value);
+                return Version.Parse(tag);
             }
         }
 
@@ -78,7 +105,7 @@ namespace TabularEditor.UIServices
     {
         public static bool UpdateAvailable(this VersionCheckResult result, bool skipPatchUpdates = false)
         {
-            switch(result)
+            switch (result)
             {
                 case VersionCheckResult.PatchAvailable:
                     if (skipPatchUpdates)
@@ -92,8 +119,6 @@ namespace TabularEditor.UIServices
                     return false;
             }
         }
-
-
 
         internal static VersionCheckResult DetermineUpdate(this Version current, Version available)
         {
