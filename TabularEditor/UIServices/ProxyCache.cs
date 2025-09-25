@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -25,7 +25,7 @@ namespace TabularEditor.UIServices
 
             try
             {
-                var wr = WebRequest.CreateHttp(UpdateService.VERSION_MANIFEST_URL);
+                var wr = WebRequest.CreateHttp(UpdateService.GITHUB_RELEASES_LATEST_API);
                 wr.Proxy = proxy;
                 using (var resp = wr.GetResponse())
                 {
